@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.23;
 
-import {IVerifier} from "./interfaces/IVerifier.sol";
+import "@semaphore-protocol/contracts/interfaces/ISemaphore.sol";
 import {Ownable} from "solady/src/auth/Ownable.sol";
 
 /**
@@ -27,11 +27,11 @@ contract InheritanceVault is Ownable {
     //                             STORAGE
     // ═══════════════════════════════════════════════════════════════════
 
-    /// @notice The ZK verifier contract used to validate heir proofs
-    IVerifier public verifier;
+    /// @notice The Semaphore contract used to validate heir proofs
+    ISemaphore public semaphore;
 
-    /// @notice Merkle root of the heir set (commitment to authorized heirs)
-    bytes32 public heirRoot;
+    /// @notice The Semaphore group ID for authorized heirs
+    uint256 public groupId;
 
     /// @notice How often the owner must send heartbeats (in seconds)
     uint256 public heartbeatInterval;
@@ -44,9 +44,6 @@ contract InheritanceVault is Ownable {
 
     /// @notice End timestamp of the current challenge window (0 when not in expiry)
     uint256 public challengeWindowEnd;
-
-    /// @notice Tracks used nullifiers to prevent double claiming
-    mapping(bytes32 => bool) public usedNullifier;
 
     // ═══════════════════════════════════════════════════════════════════
     //                             ERRORS
@@ -76,17 +73,11 @@ contract InheritanceVault is Ownable {
     /// @dev ZK proof verification failed
     error InvalidProof();
 
-    /// @dev This nullifier has already been used
-    error NullifierAlreadyUsed();
-
     /// @dev Claiming is not open yet (challenge window still active)
     error ClaimNotOpen();
 
     /// @dev Address cannot be zero
     error ZeroAddress();
-
-    /// @dev Root cannot be zero
-    error ZeroRoot();
 
     /// @dev Invalid constructor parameters
     error InvalidParams();
@@ -104,14 +95,14 @@ contract InheritanceVault is Ownable {
     /// @notice Emitted when an heir successfully claims assets
     event Claimed(bytes32 nullifierHash, address to, uint256 amount, bytes signal);
 
-    /// @notice Emitted when the heir root is updated
-    event RootUpdated(bytes32 newRoot);
-
     /// @notice Emitted when owner sends a heartbeat
     event Heartbeat(uint256 nextDeadline);
 
-    /// @notice Emitted when verifier is updated
-    event VerifierUpdated(address indexed oldVerifier, address indexed newVerifier);
+    /// @notice Emitted when Semaphore contract is updated
+    event SemaphoreUpdated(address indexed oldSemaphore, address indexed newSemaphore);
+
+    /// @notice Emitted when group ID is updated
+    event GroupIdUpdated(uint256 indexed oldGroupId, uint256 indexed newGroupId);
 
     // ═══════════════════════════════════════════════════════════════════
     //                            MODIFIERS
@@ -131,31 +122,30 @@ contract InheritanceVault is Ownable {
 
     /**
      * @notice Initializes a new inheritance vault
-     * @param _verifier Address of the ZK verifier contract
-     * @param _heirRoot Initial Merkle root of the heir set
+     * @param semaphoreAddress Address of the Semaphore contract
      * @param _heartbeatInterval How often owner must send heartbeats (seconds)
      * @param _challengeWindow Duration of challenge window after expiry (seconds)
      */
     constructor(
-        address _verifier,
-        bytes32 _heirRoot,
+        address semaphoreAddress,
         uint256 _heartbeatInterval,
         uint256 _challengeWindow
     ) {
-        if (_verifier == address(0)) revert ZeroAddress();
-        if (_heirRoot == bytes32(0)) revert ZeroRoot();
+        if (semaphoreAddress == address(0)) revert ZeroAddress();
         if (_heartbeatInterval == 0 || _challengeWindow == 0) revert InvalidParams();
 
         // Initialize Solady ownership
         _initializeOwner(msg.sender);
         
-        verifier = IVerifier(_verifier);
-        heirRoot = _heirRoot;
+        semaphore = ISemaphore(semaphoreAddress);
         heartbeatInterval = _heartbeatInterval;
         challengeWindow = _challengeWindow;
         nextDeadline = block.timestamp + _heartbeatInterval;
 
-        emit RootUpdated(_heirRoot);
+        // Create a new Semaphore group for heirs
+        groupId = semaphore.createGroup(address(this));
+
+        emit GroupIdUpdated(0, groupId);
         emit Heartbeat(nextDeadline);
     }
 
@@ -189,24 +179,32 @@ contract InheritanceVault is Ownable {
     }
 
     /**
-     * @notice Owner updates the heir root (commitment to authorized heirs)
-     * @param newRoot New Merkle root of the heir set
+     * @notice Update the Semaphore contract address
+     * @param newSemaphore Address of the new Semaphore contract
      */
-    function setRoot(bytes32 newRoot) external onlyOwner onlyAlive {
-        if (newRoot == bytes32(0)) revert ZeroRoot();
-        heirRoot = newRoot;
-        emit RootUpdated(newRoot);
+    function setSemaphore(address newSemaphore) external onlyOwner {
+        if (newSemaphore == address(0)) revert ZeroAddress();
+        address oldSemaphore = address(semaphore);
+        semaphore = ISemaphore(newSemaphore);
+        emit SemaphoreUpdated(oldSemaphore, newSemaphore);
     }
 
     /**
-     * @notice Update the ZK verifier contract
-     * @param newVerifier Address of the new verifier contract
+     * @notice Update the group ID
+     * @param newGroupId New group ID for heirs
      */
-    function setVerifier(address newVerifier) external onlyOwner {
-        if (newVerifier == address(0)) revert ZeroAddress();
-        address oldVerifier = address(verifier);
-        verifier = IVerifier(newVerifier);
-        emit VerifierUpdated(oldVerifier, newVerifier);
+    function setGroupId(uint256 newGroupId) external onlyOwner onlyAlive {
+        uint256 oldGroupId = groupId;
+        groupId = newGroupId;
+        emit GroupIdUpdated(oldGroupId, newGroupId);
+    }
+
+    /**
+     * @notice Add a new heir to the Semaphore group
+     * @param identityCommitment The identity commitment of the heir
+     */
+    function addHeir(uint256 identityCommitment) external onlyOwner onlyAlive {
+        semaphore.addMember(groupId, identityCommitment);
     }
 
     // ═══════════════════════════════════════════════════════════════════
@@ -226,48 +224,47 @@ contract InheritanceVault is Ownable {
     }
 
     /**
-     * @notice Heirs can claim assets after the challenge window ends
-     * @dev Requires a valid ZK proof demonstrating heir membership
-     * @param proof ZK proof bytes
-     * @param nullifierHash One-time nullifier to prevent double claiming
-     * @param signal Optional signal data (e.g., payout parameters)
+     * @notice Heirs can claim assets after the challenge window ends using Semaphore proof
+     * @dev Requires a valid Semaphore proof demonstrating heir membership
+     * @param merkleTreeDepth Depth of the Merkle tree
+     * @param merkleTreeRoot Root of the Merkle tree
+     * @param nullifier Nullifier to prevent double claiming
+     * @param signal Signal data (can encode payout parameters)
+     * @param points Proof points from the zero-knowledge proof
      * @param to Address to receive the claimed assets
      * @param amount Amount to claim (for event logging, actual logic TBD)
      */
     function claim(
-        bytes calldata proof,
-        bytes32 nullifierHash,
-        bytes calldata signal,
+        uint256 merkleTreeDepth,
+        uint256 merkleTreeRoot,
+        uint256 nullifier,
+        uint256 signal,
+        uint256[8] calldata points,
         address to,
         uint256 amount
     ) external {
         // State checks
         if (challengeWindowEnd == 0) revert ExpiryNotStarted();
         if (block.timestamp <= challengeWindowEnd) revert ClaimNotOpen();
-        if (usedNullifier[nullifierHash]) revert NullifierAlreadyUsed();
         if (to == address(0)) revert ZeroAddress();
 
-        // External nullifier derivation (vault domain)
-        // TODO: Make round configurable for multi-epoch support
-        bytes32 externalNullifier = keccak256(abi.encodePacked(address(this), uint256(1)));
-
-        // Verify ZK proof
-        bool isValid = verifier.verifyProof(
-            proof,
-            heirRoot,
-            nullifierHash,
-            externalNullifier,
-            signal
+        // Build Semaphore proof struct
+        ISemaphore.SemaphoreProof memory proof = ISemaphore.SemaphoreProof(
+            merkleTreeDepth,
+            merkleTreeRoot,
+            nullifier,
+            signal,
+            groupId,
+            points
         );
-        if (!isValid) revert InvalidProof();
 
-        // Effects: mark nullifier as used
-        usedNullifier[nullifierHash] = true;
+        // Verify proof via Semaphore (this also prevents nullifier reuse)
+        semaphore.validateProof(groupId, proof);
 
         // TODO: Interactions - transfer ERC20/721/1155 based on signal or internal policy
         // This is where asset transfer logic will be implemented
 
-        emit Claimed(nullifierHash, to, amount, signal);
+        emit Claimed(bytes32(nullifier), to, amount, abi.encode(signal));
     }
 
     // ═══════════════════════════════════════════════════════════════════
