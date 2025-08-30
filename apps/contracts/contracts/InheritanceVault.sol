@@ -67,6 +67,9 @@ contract InheritanceVault is Ownable {
     /// @dev Expiry has not been started yet
     error ExpiryNotStarted();
 
+    /// @dev Expiry has already been started yet
+    error ExpiryAlreadyStarted();
+
     /// @dev Action requires vault to still be alive
     error Expired();
 
@@ -216,7 +219,7 @@ contract InheritanceVault is Ownable {
      */
     function startExpiry() external {
         if (block.timestamp <= nextDeadline) revert StillAlive();
-        if (challengeWindowEnd != 0) revert ExpiryNotStarted(); // Already started
+        if (challengeWindowEnd != 0) revert ExpiryAlreadyStarted();
 
         challengeWindowEnd = block.timestamp + challengeWindow;
         emit ExpiryStarted(block.timestamp, challengeWindowEnd);
