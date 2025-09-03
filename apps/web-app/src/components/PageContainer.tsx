@@ -48,20 +48,28 @@ export default function PageContainer({
 
     return (
         <>
-            <HStack align="center" justify="space-between" p="2">
-                <HStack ml="4">
-                    <NextLink href="/">Feedback</NextLink>
+            <HStack align="center" justify="space-between" p="4" borderBottomWidth="1px">
+                <HStack spacing={6}>
+                    <NextLink href="/">
+                        <Text fontSize="lg" fontWeight="bold">NomadKit</Text>
+                    </NextLink>
+                    <NextLink href="/owner">
+                        <Text color={pathname === '/owner' ? 'blue.500' : 'gray.500'}>Owner</Text>
+                    </NextLink>
+                    <NextLink href="/claim">
+                        <Text color={pathname === '/claim' ? 'green.500' : 'gray.500'}>Claim</Text>
+                    </NextLink>
                 </HStack>
                 <HStack>
                     <Link
                         href={getExplorerLink(
                             process.env.NEXT_PUBLIC_DEFAULT_NETWORK as string,
-                            process.env.NEXT_PUBLIC_FEEDBACK_CONTRACT_ADDRESS as string
+                            process.env.NEXT_PUBLIC_VAULT_ADDRESS as string
                         )}
                         isExternal
                     >
-                        <Text>
-                            {shortenString(process.env.NEXT_PUBLIC_FEEDBACK_CONTRACT_ADDRESS as string, [6, 4])}
+                        <Text fontSize="sm" fontFamily="mono">
+                            {shortenString(process.env.NEXT_PUBLIC_VAULT_ADDRESS as string, [6, 4])}
                         </Text>
                     </Link>
                     <Link href="https://github.com/semaphore-protocol/boilerplate" isExternal>

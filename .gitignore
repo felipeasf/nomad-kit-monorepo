@@ -39,7 +39,8 @@ node_modules/
 .vercel
 
 # dotenv environment variable files
-.env
+.env*
+!.env.example
 
 # Optional npm cache directory
 .npm

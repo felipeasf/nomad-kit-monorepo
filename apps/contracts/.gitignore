@@ -7,3 +7,7 @@ typechain-types
 coverage
 coverage.json
 *.lcov
+
+# Environment files
+.env*
+!.env.example

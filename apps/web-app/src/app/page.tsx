@@ -1,94 +1,118 @@
 "use client"
 
-import { Box, Button, Divider, Heading, HStack, Link, Text } from "@chakra-ui/react"
-import { Identity } from "@semaphore-protocol/core"
+import { 
+    Box, 
+    Button, 
+    Divider, 
+    Heading, 
+    HStack, 
+    VStack,
+    Link, 
+    Text, 
+    Card,
+    CardBody,
+    Badge
+} from "@chakra-ui/react"
 import { useRouter } from "next/navigation"
-import { useCallback, useEffect, useState } from "react"
-import Stepper from "../components/Stepper"
+import { useEffect } from "react"
 import { useLogContext } from "../context/LogContext"
+import { useInheritanceVaultContext } from "../context/InheritanceVaultContext"
 
-export default function IdentitiesPage() {
+export default function HomePage() {
     const router = useRouter()
     const { setLog } = useLogContext()
-    const [_identity, setIdentity] = useState<Identity>()
+    const { vaultInfo, isLoading } = useInheritanceVaultContext()
 
     useEffect(() => {
-        const privateKey = localStorage.getItem("identity")
-
-        if (privateKey) {
-            const identity = Identity.import(privateKey)
-
-            setIdentity(identity)
-
-            setLog("Your Semaphore identity has been retrieved from the browser cache 👌🏽")
-        } else {
-            setLog("Create your Semaphore identity 👆🏽")
-        }
-    }, [setLog])
-
-    const createIdentity = useCallback(async () => {
-        const identity = new Identity()
-
-        setIdentity(identity)
-
-        localStorage.setItem("identity", identity.export())
-
-        setLog("Your new Semaphore identity has just been created 🎉")
+        setLog("Welcome to NomadKit! Navigate to Owner or Claim pages.")
     }, [setLog])
 
     return (
-        <>
+        <VStack spacing={6} align="stretch">
             <Heading as="h2" size="xl">
-                Identities
+                NomadKit
             </Heading>
 
-            <Text pt="2" fontSize="md">
-                The identity of a user in the Semaphore protocol. A{" "}
-                <Link href="https://docs.semaphore.pse.dev/guides/identities" isExternal>
-                    Semaphore identity
+            <Text pt="2" fontSize="md" color="gray.600">
+                A decentralized inheritance system using{" "}
+                <Link href="https://docs.semaphore.pse.dev/" isExternal color="blue.500">
+                    Semaphore Protocol
                 </Link>{" "}
-                consists of an{" "}
-                <Link
-                    href="https://github.com/privacy-scaling-explorations/zk-kit/tree/main/packages/eddsa-poseidon"
-                    isExternal
-                >
-                    EdDSA
-                </Link>{" "}
-                public/private key pair and a commitment, used as the public identifier of the identity.
+                for anonymous proof verification. Owners can add heirs and heirs can claim assets after expiry using zero-knowledge proofs.
             </Text>
 
-            <Divider pt="5" borderColor="gray.500" />
-
-            <HStack py="5">
-                <Text fontWeight="bold" fontSize="lg">
-                    Identity
-                </Text>
-            </HStack>
-
-            {_identity && (
-                <Box pb="6" pl="2">
-                    <Text>
-                        <b>Private Key (base64)</b>:<br /> {_identity.export()}
-                    </Text>
-                    <Text>
-                        <b>Public Key</b>:<br /> [{_identity.publicKey[0].toString()},{" "}
-                        {_identity.publicKey[1].toString()}]
-                    </Text>
-                    <Text>
-                        <b>Commitment</b>:<br /> {_identity.commitment.toString()}
-                    </Text>
-                </Box>
+            {vaultInfo && (
+                <Card>
+                    <CardBody>
+                        <VStack align="start" spacing={3}>
+                            <HStack justify="space-between" w="full">
+                                <Heading size="md">Vault Status</Heading>
+                                <Badge colorScheme={vaultInfo.isAlive ? "green" : "red"}>
+                                    {vaultInfo.isAlive ? "ALIVE" : "EXPIRED"}
+                                </Badge>
+                            </HStack>
+                            <HStack>
+                                <Text fontWeight="bold">Contract:</Text>
+                                <Text fontFamily="mono" fontSize="sm">{vaultInfo.address}</Text>
+                            </HStack>
+                            <HStack>
+                                <Text fontWeight="bold">Group ID:</Text>
+                                <Text>{vaultInfo.groupId}</Text>
+                            </HStack>
+                            <HStack>
+                                <Text fontWeight="bold">Claims:</Text>
+                                <Badge colorScheme={vaultInfo.claimOpen ? "orange" : "gray"}>
+                                    {vaultInfo.claimOpen ? "OPEN" : "CLOSED"}
+                                </Badge>
+                            </HStack>
+                        </VStack>
+                    </CardBody>
+                </Card>
             )}
 
-            <Box pb="5">
-                <Button w="full" colorScheme="primary" onClick={createIdentity}>
-                    Create identity
-                </Button>
+            <Divider />
+
+            <VStack spacing={4}>
+                <Heading size="lg">What would you like to do?</Heading>
+                
+                <HStack spacing={4} w="full">
+                    <Button 
+                        size="lg" 
+                        colorScheme="blue" 
+                        flex={1}
+                        onClick={() => router.push("/owner")}
+                    >
+                        Owner Dashboard
+                    </Button>
+                    
+                    <Button 
+                        size="lg" 
+                        colorScheme="green" 
+                        flex={1}
+                        onClick={() => router.push("/claim")}
+                    >
+                        Claim Inheritance
+                    </Button>
+                </HStack>
+
+                <VStack spacing={2} fontSize="sm" color="gray.500">
+                    <Text>• <strong>Owner Dashboard:</strong> Add heirs, manage vault, generate claim kits</Text>
+                    <Text>• <strong>Claim Inheritance:</strong> Submit inheritance claims using encrypted claim kits</Text>
+                </VStack>
+            </VStack>
+
+            <Divider />
+
+            <Box>
+                <Heading size="md" mb={3}>How it Works</Heading>
+                <VStack align="start" spacing={2} fontSize="sm">
+                    <Text><strong>1. Setup:</strong> Owner deploys vault and adds heir identities</Text>
+                    <Text><strong>2. Heartbeat:</strong> Owner sends periodic heartbeats to stay alive</Text>
+                    <Text><strong>3. Expiry:</strong> If heartbeat is missed, expiry process begins</Text>
+                    <Text><strong>4. Challenge:</strong> Owner has a window to revoke expiry</Text>
+                    <Text><strong>5. Claim:</strong> After challenge window, heirs can claim with ZK proofs</Text>
+                </VStack>
             </Box>
-
-            <Divider pt="3" borderColor="gray.500" />
-
-            <Stepper step={1} onNextClick={_identity && (() => router.push("/group"))} />
-        </>
+        </VStack>
     )
 }
